@@ -1,0 +1,33 @@
+# Optional services. Stage 1 runs without either of them:
+#   - the backend uses SQLite unless DATABASE_URL is set,
+#   - the AI module uses the mock generator unless AI_PROVIDER=ollama.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: testownik
+      POSTGRES_USER: testownik
+      POSTGRES_PASSWORD: testownik
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # Uncomment on a machine with an NVIDIA GPU and the NVIDIA Container Toolkit:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  postgres-data:
+  ollama-data:
