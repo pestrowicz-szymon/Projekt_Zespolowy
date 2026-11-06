@@ -17,9 +17,13 @@ export interface Question {
 
 export type JobStatus = 'processing' | 'completed' | 'failed'
 
+// 'reading': extracting text (OCR) from uploaded files, 'generating': creating questions.
+export type JobStage = 'reading' | 'generating'
+
 export interface Job {
   id: string
   status: JobStatus
+  stage: JobStage
   progress: number
   language: string
   question_count: number

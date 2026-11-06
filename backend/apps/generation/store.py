@@ -1,9 +1,9 @@
 """In-memory store of generation jobs.
 
-MOCK: Stage 1 keeps no user data ("dokumenty przetwarzane są tymczasowo"),
-so jobs live only in process memory and vanish on restart. Generation runs
-synchronously and progress is simulated from elapsed time. Replace with a
-real task queue (e.g. Celery / Django tasks) once the AI module is ready.
+Stage 1 keeps no user data ("dokumenty przetwarzane są tymczasowo"), so jobs
+live only in process memory and vanish on restart. This only works with a
+single server process (``runserver``); replace with a database-backed task
+queue before running several workers.
 """
 
 import threading
@@ -11,8 +11,6 @@ import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import uuid4
-
-from django.conf import settings
 
 from ai_engine.schemas import Question
 
@@ -23,31 +21,49 @@ class JobStatus(StrEnum):
     FAILED = "failed"
 
 
+class JobStage(StrEnum):
+    READING = "reading"  # extracting text from uploaded files
+    GENERATING = "generating"
+
+
+@dataclass
+class Upload:
+    filename: str
+    data: bytes
+
+
 @dataclass
 class Job:
-    source_text: str
     language: str
     question_count: int
     source_files: list[str]
+    pasted_text: str = ""
+    # Raw files, dropped as soon as their text has been extracted.
+    uploads: list[Upload] = field(default_factory=list)
+    source_text: str = ""
+    stage: JobStage = JobStage.GENERATING
+    # Rough guess of how long generation takes; drives the progress bar only.
+    expected_seconds: float = 10.0
     questions: list[Question] = field(default_factory=list)
     error: str | None = None
+    finished_at: float | None = None
     id: str = field(default_factory=lambda: uuid4().hex)
     created_at: float = field(default_factory=time.time)
-
-    @property
-    def progress(self) -> int:
-        if self.error:
-            return 100
-        duration = settings.MOCK_GENERATION_SECONDS
-        if duration <= 0:
-            return 100
-        return min(100, int((time.time() - self.created_at) / duration * 100))
 
     @property
     def status(self) -> JobStatus:
         if self.error:
             return JobStatus.FAILED
-        return JobStatus.COMPLETED if self.progress >= 100 else JobStatus.PROCESSING
+        return JobStatus.PROCESSING if self.finished_at is None else JobStatus.COMPLETED
+
+    @property
+    def progress(self) -> int:
+        if self.finished_at is not None:
+            return 100
+        # A single LLM call reports no real progress, so estimate it and stop
+        # short of 100 % until the job has actually finished.
+        elapsed = time.time() - self.created_at
+        return min(95, int(elapsed / max(self.expected_seconds, 0.1) * 100))
 
     def find_question(self, question_id: str) -> Question | None:
         return next((q for q in self.questions if q.id == question_id), None)

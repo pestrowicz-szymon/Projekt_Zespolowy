@@ -2,11 +2,12 @@ import type { Question } from '../api/types'
 
 interface Props {
   questions: Question[]
+  busyQuestionId: string | null
   onDelete: (questionId: string) => void
   onRegenerate: (questionId: string) => void
 }
 
-export function QuestionList({ questions, onDelete, onRegenerate }: Props) {
+export function QuestionList({ questions, busyQuestionId, onDelete, onRegenerate }: Props) {
   if (questions.length === 0) {
     return <p>Brak pytań.</p>
   }
@@ -27,10 +28,19 @@ export function QuestionList({ questions, onDelete, onRegenerate }: Props) {
             ))}
           </ul>
           <div className="row">
-            <button type="button" onClick={() => onRegenerate(question.id)}>
-              Wygeneruj ponownie
+            <button
+              type="button"
+              disabled={busyQuestionId !== null}
+              onClick={() => onRegenerate(question.id)}
+            >
+              {busyQuestionId === question.id ? 'Generowanie…' : 'Wygeneruj ponownie'}
             </button>
-            <button type="button" className="secondary" onClick={() => onDelete(question.id)}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busyQuestionId !== null}
+              onClick={() => onDelete(question.id)}
+            >
               Usuń
             </button>
           </div>

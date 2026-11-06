@@ -7,10 +7,11 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ai_engine import get_generator, testownik
-from ai_engine.extraction import SUPPORTED_EXTENSIONS, extract_text
+from ai_engine import GenerationError, get_generator, testownik
+from ai_engine.extraction import SUPPORTED_EXTENSIONS
 from apps.generation import serializers as s
-from apps.generation.store import Job, JobStatus, jobs
+from apps.generation.store import Job, JobStage, JobStatus, Upload, jobs
+from apps.generation.tasks import start_job
 
 
 def _get_job_or_404(job_id: str) -> Job:
@@ -18,11 +19,6 @@ def _get_job_or_404(job_id: str) -> Job:
     if job is None:
         raise Http404("Job not found.")
     return job
-
-
-def _resolve_language(language: str) -> str:
-    # TODO (AI module): detect the language of the material.
-    return "pl" if language == "auto" else language
 
 
 class HealthView(APIView):
@@ -55,7 +51,7 @@ class JobCreateView(APIView):
     @extend_schema(
         request={"multipart/form-data": s.JobCreateSerializer},
         responses={201: s.JobSerializer},
-        summary="Start generating questions from files and/or pasted text (WF-01..WF-05)",
+        summary="Start reading files and generating questions (WF-01..WF-05)",
         tags=["jobs"],
     )
     def post(self, request):
@@ -63,22 +59,18 @@ class JobCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        texts = [extract_text(f.name, f) for f in data["files"]]
-        if data["text"].strip():
-            texts.append(data["text"])
+        # Files are only read here; extracting their text (OCR) runs in the background job.
+        uploads = [Upload(filename=f.name, data=f.read()) for f in data["files"]]
         job = Job(
-            source_text="\n\n".join(texts),
             language=data["language"],
             question_count=data["question_count"],
-            source_files=[f.name for f in data["files"]],
+            source_files=[upload.filename for upload in uploads],
+            pasted_text=data["text"],
+            uploads=uploads,
+            stage=JobStage.READING if uploads else JobStage.GENERATING,
         )
-        try:
-            job.questions = get_generator().generate(
-                job.source_text, job.question_count, _resolve_language(job.language)
-            )
-        except Exception as exc:  # noqa: BLE001 - surfaced to the user as a failed job
-            job.error = str(exc) or exc.__class__.__name__
         jobs.add(job)
+        start_job(job)
         return Response(s.JobSerializer(job).data, status=status.HTTP_201_CREATED)
 
 
@@ -112,7 +104,10 @@ class QuestionDetailView(APIView):
 class QuestionRegenerateView(APIView):
     @extend_schema(
         request=None,
-        responses=s.QuestionSerializer,
+        responses={
+            200: s.QuestionSerializer,
+            502: OpenApiResponse(description="The AI provider failed."),
+        },
         summary="Regenerate a single question (PU-02)",
         tags=["questions"],
     )
@@ -121,9 +116,13 @@ class QuestionRegenerateView(APIView):
         question = job.find_question(question_id)
         if question is None:
             raise Http404("Question not found.")
-        [new_question] = get_generator().generate(
-            job.source_text, 1, _resolve_language(job.language)
-        )
+        others = [q.text for q in job.questions]
+        try:
+            [new_question, *_] = get_generator().generate(
+                job.source_text, 1, job.language, avoid=others
+            )
+        except GenerationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
         new_question.id = question.id
         job.questions[job.questions.index(question)] = new_question
         return Response(s.QuestionSerializer(new_question).data)

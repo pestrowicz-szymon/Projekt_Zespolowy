@@ -11,7 +11,8 @@ The Vite dev server forwards every `/api/...` request to Django, so you only ope
 http://localhost:5173 in the browser.
 
 Out of the box the backend uses a **mock AI generator** and **SQLite**, so you do **not**
-need Ollama, a GPU, PostgreSQL or Docker to start working.
+need an API key, Ollama, a GPU, PostgreSQL or Docker to start working. To generate real
+questions, add a Gemini API key (section 7).
 
 ## 1. Prerequisites
 
@@ -115,16 +116,87 @@ Backend settings come from environment variables / `backend/.env` (see `backend/
 | `DJANGO_DEBUG`            | `False`                 | Debug mode (`True` in `.env.example`)           |
 | `DJANGO_SECRET_KEY`       | dev-only key            | Must be set to a real secret outside dev        |
 | `DATABASE_URL`            | SQLite `db.sqlite3`     | e.g. `postgres://testownik:testownik@localhost:5432/testownik` |
-| `AI_PROVIDER`             | `mock`                  | `mock` or `ollama`                              |
+| `AI_PROVIDER`             | `mock`                  | `mock`, `gemini` or `ollama`                    |
+| `GEMINI_API_KEY`          | empty                   | Your Gemini API key (see section 7)             |
+| `GEMINI_MODEL`            | `gemini-3.5-flash-lite` | Gemini model ID (`python manage.py gemini_models` lists yours) |
 | `OLLAMA_BASE_URL`         | `http://localhost:11434`| Ollama server                                   |
 | `OLLAMA_MODEL`            | `llama3.1:8b`           | Model to use                                    |
 | `MAX_UPLOAD_SIZE_MB`      | `100`                   | Per-file upload limit                           |
 | `MOCK_GENERATION_SECONDS` | `4`                     | Fake job duration for the mock generator        |
+| `AI_LOG_LEVEL`            | `INFO`                  | `DEBUG` logs the material sent to the model and its raw reply |
 
 Frontend (optional, `frontend/.env.local`): `VITE_API_BASE_URL` (default `/api/v1`) and
 `VITE_API_PROXY_TARGET` (default `http://127.0.0.1:8000`).
 
-## 7. Optional: PostgreSQL and Ollama via Docker
+## 7. Real questions with Gemini
+
+The provider is chosen by `AI_PROVIDER` in `backend/.env`: `mock` (default), `gemini` or
+`ollama` (not implemented yet). Everything else in `.env` stays as it is.
+
+1. Create a free API key in Google AI Studio: https://aistudio.google.com/apikey
+2. Edit `backend/.env` (gitignored – **never commit the key** or put it in frontend code).
+   Keep all existing lines and change/add only these three:
+
+   ```
+   AI_PROVIDER=gemini
+   GEMINI_API_KEY=your-key-here
+   GEMINI_MODEL=gemini-3.5-flash-lite
+   ```
+
+   - `AI_PROVIDER` already exists – change `mock` to `gemini`.
+   - `GEMINI_API_KEY` and `GEMINI_MODEL` are new if your `.env` was copied from an older
+     `.env.example`; add them anywhere in the file. `GEMINI_MODEL` is optional
+     (`gemini-3.5-flash-lite` is the default).
+   - No quotes or spaces around `=`. Each variable may appear only once.
+3. Install the Gemini SDK (`google-genai`) into the backend virtualenv (once, and again
+   whenever `requirements.txt` changes):
+
+   ```bash
+   cd backend
+   pip install -r requirements-dev.txt
+   ```
+
+4. Restart the backend (`Ctrl+C`, then `python manage.py runserver`). Django reads `.env` only
+   at startup.
+5. Start the frontend as usual (`npm run dev`) and open http://localhost:5173. Paste some real
+   study material or upload files, click **Generuj pytania** and wait – a real model takes
+   several seconds to tens of seconds.
+
+**Files with Gemini.** `.txt` and `.md` are read locally. PDF, DOCX, PPTX and images
+(`.png`, `.jpg`, `.jpeg`, `.webp`) are sent to Gemini, which extracts their text – including
+OCR of scans, photos and handwriting, and short descriptions of diagrams. The progress bar shows
+**Odczytywanie plików…** during this step and **Generowanie pytań…** after it.
+
+- Each such file costs **one extra request** to your Gemini quota (the questions are then
+  generated in one more request).
+- Gemini's limit is 50 MB / 1000 pages per file. Files over 15 MB are sent through Gemini's
+  Files API and deleted from Google's servers right after reading.
+- With `AI_PROVIDER=mock`, these files are not read – the material contains only a placeholder
+  line. With `ollama`, they are rejected (no reader yet).
+
+**Seeing what Gemini returned.** Add `AI_LOG_LEVEL=DEBUG` to `backend/.env` and restart the
+backend. Each request then prints to the backend terminal:
+
+- `Gemini read ...` – for each uploaded PDF/DOCX/PPTX/image: its size, `finish_reason` and the
+  first 1000 characters of the text Gemini extracted,
+- `Gemini request: ...` – model, question count, language, material length and the first
+  1000 characters of the material that was actually sent,
+- `Gemini response: ...` – `finish_reason`, `block_reason`, token counts and the raw JSON reply.
+
+Set it back to `INFO` afterwards – `DEBUG` prints your study material into the terminal.
+
+To go back to fake questions, set `AI_PROVIDER=mock` and restart the backend. The Gemini lines can
+stay in the file; they are ignored while the provider is `mock`.
+
+Each teammate uses their own key. The free tier has per-minute and per-day request limits
+(see your project's limits at https://aistudio.google.com/rate-limit). One quiz is one request
+plus one per uploaded PDF/DOCX/PPTX/image, and each "Wygeneruj ponownie" is one more. When you hit the limit, the UI shows a message and
+you can try again a bit later. On the free tier Google may use the submitted material to improve
+its products, so don't upload anything confidential.
+
+Switch back to `AI_PROVIDER=mock` when working on the UI to save your quota.
+
+## 8. Optional: PostgreSQL and Ollama via Docker
 
 Not needed for Stage 1. When you want them:
 
@@ -153,4 +225,24 @@ PostgreSQL also needs a driver: `pip install "psycopg[binary]"` (add it to
 - **`npm run dev` fails with an engine / syntax error** → Node is older than 22.12; switch to Node 24.
 - **Port already in use** → `python manage.py runserver 8001` and start Vite with
   `VITE_API_PROXY_TARGET=http://127.0.0.1:8001 npm run dev`.
+- **"Brak klucza GEMINI_API_KEY"** → `AI_PROVIDER=gemini` is set but the key is missing from
+  `backend/.env`, or the server was not restarted after editing it.
+- **"Model Gemini „…” nie jest dostępny"** (backend log: `404 ... is not found for API version`)
+  → your key can't use that model ID. List the models it can use and copy one into
+  `GEMINI_MODEL`, then restart the backend:
+
+  ```bash
+  cd backend
+  python manage.py gemini_models
+  ```
+
+  Use a specific model ID (e.g. `gemini-3.5-flash-lite`); aliases like `gemini-flash-latest`
+  don't work for this API.
+- **"Model nie zwrócił żadnych pytań"** (log: `Gemini returned no usable questions ... '[]'`)
+  → the model found nothing to ask about: the material is too short, or the file had no
+  readable content. Use `AI_LOG_LEVEL=DEBUG` (section 7) to see what was extracted and sent.
+- **"Odczyt plików .pdf wymaga AI_PROVIDER=gemini"** → you uploaded a PDF/DOCX/PPTX/image while
+  `AI_PROVIDER=ollama`. Switch to `gemini`, or paste the text.
+- **Text of a long PDF is cut off** (log: `was cut off at the model's output limit`) → Gemini
+  can only return a limited amount of text per request. Split the document into smaller files.
 - **Generated jobs disappear** → expected: Stage 1 keeps jobs in memory only; restarting Django clears them.

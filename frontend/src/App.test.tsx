@@ -17,6 +17,7 @@ const config: AppConfig = {
 const completedJob: Job = {
   id: 'job1',
   status: 'completed',
+  stage: 'generating',
   progress: 100,
   language: 'auto',
   question_count: 1,

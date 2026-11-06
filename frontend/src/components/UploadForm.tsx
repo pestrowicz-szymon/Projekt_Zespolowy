@@ -29,7 +29,7 @@ export function UploadForm({ config, disabled, onSubmit }: Props) {
   return (
     <form className="card" onSubmit={handleSubmit}>
       <label>
-        Pliki ({config?.supported_extensions.join(', ') ?? 'PDF, DOCX, PPTX, TXT, MD'})
+        Pliki ({config?.supported_extensions.join(', ') ?? 'PDF, DOCX, PPTX, TXT, MD, obrazy'})
         <input
           type="file"
           multiple

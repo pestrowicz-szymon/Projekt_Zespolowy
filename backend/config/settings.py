@@ -17,8 +17,11 @@ env = environ.Env(
     AI_PROVIDER=(str, "mock"),
     OLLAMA_BASE_URL=(str, "http://localhost:11434"),
     OLLAMA_MODEL=(str, "llama3.1:8b"),
+    GEMINI_API_KEY=(str, ""),
+    GEMINI_MODEL=(str, "gemini-3.5-flash-lite"),
     MAX_UPLOAD_SIZE_MB=(int, 100),
     MOCK_GENERATION_SECONDS=(float, 4.0),
+    AI_LOG_LEVEL=(str, "INFO"),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -117,8 +120,23 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
 
 # AI module ---------------------------------------------------------------------
-AI_PROVIDER = env("AI_PROVIDER")  # "mock" | "ollama"
+AI_PROVIDER = env("AI_PROVIDER")  # "mock" | "gemini" | "ollama"
 OLLAMA_BASE_URL = env("OLLAMA_BASE_URL")
 OLLAMA_MODEL = env("OLLAMA_MODEL")
+GEMINI_API_KEY = env("GEMINI_API_KEY")
+GEMINI_MODEL = env("GEMINI_MODEL")
 # How long a mocked generation job pretends to run (to exercise the progress bar).
 MOCK_GENERATION_SECONDS = env("MOCK_GENERATION_SECONDS")
+# Run generation jobs in a background thread (tests switch this off).
+GENERATION_RUN_IN_BACKGROUND = True
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "loggers": {
+        # DEBUG logs the material sent to the model and its raw response.
+        "ai_engine": {"handlers": ["console"], "level": env("AI_LOG_LEVEL")},
+        "apps": {"handlers": ["console"], "level": "INFO"},
+    },
+}

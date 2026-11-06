@@ -10,6 +10,7 @@ function App() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [job, setJob] = useState<Job | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [busyQuestionId, setBusyQuestionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -57,8 +58,13 @@ function App() {
   const handleRegenerate = (questionId: string) =>
     run(async () => {
       if (!job) return
-      const updated = await api.regenerateQuestion(job.id, questionId)
-      setJob({ ...job, questions: job.questions.map((q) => (q.id === questionId ? updated : q)) })
+      setBusyQuestionId(questionId)
+      try {
+        const updated = await api.regenerateQuestion(job.id, questionId)
+        setJob({ ...job, questions: job.questions.map((q) => (q.id === questionId ? updated : q)) })
+      } finally {
+        setBusyQuestionId(null)
+      }
     })
 
   const handleReset = () =>
@@ -84,7 +90,10 @@ function App() {
 
       {job?.status === 'processing' && (
         <section className="card">
-          <p>Generowanie pytań… {job.progress}%</p>
+          <p>
+            {job.stage === 'reading' ? 'Odczytywanie plików…' : 'Generowanie pytań…'}{' '}
+            {`${job.progress}%`}
+          </p>
           <progress value={job.progress} max={100} />
         </section>
       )}
@@ -110,6 +119,7 @@ function App() {
           </div>
           <QuestionList
             questions={job.questions}
+            busyQuestionId={busyQuestionId}
             onDelete={handleDelete}
             onRegenerate={handleRegenerate}
           />

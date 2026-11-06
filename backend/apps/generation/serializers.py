@@ -26,6 +26,7 @@ class QuestionSerializer(serializers.Serializer):
 class JobSerializer(serializers.Serializer):
     id = serializers.CharField()
     status = serializers.ChoiceField(choices=("processing", "completed", "failed"))
+    stage = serializers.ChoiceField(choices=("reading", "generating"))
     progress = serializers.IntegerField(min_value=0, max_value=100)
     language = serializers.CharField()
     question_count = serializers.IntegerField()
